@@ -14883,9 +14883,19 @@ let remoteVersionInfo = null;
 
 // 本地版本历史（远程服务禁用时使用）
 const LOCAL_VERSION_HISTORY = {
-    version: 'v1.5.1',
+    version: 'v1.5.2',
     intro: '本系统仅供个人学习研究使用，请勿用于商业用途。如有问题或建议，欢迎反馈。',
     versionHistory: [
+        {
+            version: 'v1.5.2',
+            date: '2026-03-10',
+            updates: [
+                '【新功能】GitHub Actions 在创建 Release 前自动生成并上传 update_files.json，无需手动维护更新清单',
+                '【优化】热更新检测前会实时刷新本地版本号，本地版本变更后无需重启服务即可重新检查更新',
+                '【修复】热更新执行权限改为按管理员身份判断，不再强依赖用户名必须为 admin',
+                '【修复】前端更新失败提示补充后端 detail 信息，避免只显示“未知错误”'
+            ]
+        },
         {
             version: 'v1.5.1',
             date: '2026-03-10',

@@ -1,3 +1,7 @@
+'🎉1.GitHub Actions 自动生成更新清单：发布 Release 前自动生成并上传 update_files.json；',
+'⚡2.优化热更新检测：本地版本变更后无需重启服务即可重新检查更新；',
+'🔧3.修复热更新权限判断：按管理员身份校验，不再强依赖用户名必须为 admin；',
+'🔧4.优化更新失败提示：前端可直接显示后端 detail 错误信息，便于排查；',
 '🎉1.接入 GitHub Releases 在线更新：支持从最新 Release 读取 update_files.json 检查热更新；',
 '🎉2.新增仪表盘检查更新入口：管理员可在版本区直接检查并执行热更新；',
 '⚡3.优化更新清单解析：兼容 GitHub 资产返回 application/octet-stream，避免检查更新失败；',
