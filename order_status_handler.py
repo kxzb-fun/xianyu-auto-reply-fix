@@ -87,113 +87,110 @@ class OrderStatusHandler:
     def extract_order_id(self, message: dict) -> Optional[str]:
         """从消息中提取订单ID"""
         try:
-            order_id = None
-            
-            # 先查看消息的完整结构
             logger.info(f"🔍 完整消息结构: {message}")
-            
-            # 检查message['1']的结构，处理可能是列表、字典或字符串的情况
-            message_1 = message.get('1', {})
-            content_json_str = ''
-            
-            if isinstance(message_1, dict):
-                logger.info(f"🔍 message['1'] 是字典，keys: {list(message_1.keys())}")
-                
-                # 检查message['1']['6']的结构
-                message_1_6 = message_1.get('6', {})
-                if isinstance(message_1_6, dict):
-                    logger.info(f"🔍 message['1']['6'] 是字典，keys: {list(message_1_6.keys())}")
-                    # 方法1: 从button的targetUrl中提取orderId
-                    content_json_str = message_1_6.get('3', {}).get('5', '') if isinstance(message_1_6.get('3', {}), dict) else ''
-                else:
-                    logger.info(f"🔍 message['1']['6'] 不是字典: {type(message_1_6)}")
-            
-            elif isinstance(message_1, list):
-                logger.info(f"🔍 message['1'] 是列表，长度: {len(message_1)}")
-                # 如果message['1']是列表，跳过这种提取方式
-            
-            elif isinstance(message_1, str):
-                logger.info(f"🔍 message['1'] 是字符串，长度: {len(message_1)}")
-                # 如果message['1']是字符串，跳过这种提取方式
-            
-            else:
-                logger.info(f"🔍 message['1'] 未知类型: {type(message_1)}")
-                # 其他类型，跳过这种提取方式
-            
-            if content_json_str:
-                try:
-                    content_data = json.loads(content_json_str)
-                    
-                    # 方法1a: 从button的targetUrl中提取orderId
-                    target_url = content_data.get('dxCard', {}).get('item', {}).get('main', {}).get('exContent', {}).get('button', {}).get('targetUrl', '')
-                    if target_url:
-                        # 从URL中提取orderId参数
-                        order_match = re.search(r'orderId=(\d+)', target_url)
-                        if order_match:
-                            order_id = order_match.group(1)
-                            logger.info(f'✅ 从button提取到订单ID: {order_id}')
-                    
-                    # 方法1b: 从main的targetUrl中提取order_detail的id
-                    if not order_id:
-                        main_target_url = content_data.get('dxCard', {}).get('item', {}).get('main', {}).get('targetUrl', '')
-                        if main_target_url:
-                            order_match = re.search(r'order_detail\?id=(\d+)', main_target_url)
-                            if order_match:
-                                order_id = order_match.group(1)
-                                logger.info(f'✅ 从main targetUrl提取到订单ID: {order_id}')
-                
-                except Exception as parse_e:
-                    logger.error(f"解析内容JSON失败: {parse_e}")
-            
-            # 方法2: 从dynamicOperation中的order_detail URL提取orderId
-            if not order_id and content_json_str:
-                try:
-                    content_data = json.loads(content_json_str)
-                    dynamic_target_url = content_data.get('dynamicOperation', {}).get('changeContent', {}).get('dxCard', {}).get('item', {}).get('main', {}).get('exContent', {}).get('button', {}).get('targetUrl', '')
-                    if dynamic_target_url:
-                        # 从order_detail URL中提取id参数
-                        order_match = re.search(r'order_detail\?id=(\d+)', dynamic_target_url)
-                        if order_match:
-                            order_id = order_match.group(1)
-                            logger.info(f'✅ 从order_detail提取到订单ID: {order_id}')
-                except Exception as parse_e:
-                    logger.error(f"解析dynamicOperation JSON失败: {parse_e}")
-            
-            # 方法3: 如果前面的方法都失败，尝试在整个消息中搜索订单ID模式
-            if not order_id:
-                try:
-                    # 将整个消息转换为字符串进行搜索
-                    message_str = str(message)
-                    
-                    # 搜索各种可能的订单ID模式
-                    patterns = [
-                        r'orderId[=:](\d{10,})',  # orderId=123456789 或 orderId:123456789
-                        r'order_detail\?id=(\d{10,})',  # order_detail?id=123456789
-                        r'"id"\s*:\s*"?(\d{10,})"?',  # "id":"123456789" 或 "id":123456789
-                        r'bizOrderId[=:](\d{10,})',  # bizOrderId=123456789
-                    ]
-                    
-                    for pattern in patterns:
-                        matches = re.findall(pattern, message_str)
-                        if matches:
-                            # 取第一个匹配的订单ID
-                            order_id = matches[0]
-                            logger.info(f'✅ 从消息字符串中提取到订单ID: {order_id} (模式: {pattern})')
-                            break
-                
-                except Exception as search_e:
-                    logger.error(f"在消息字符串中搜索订单ID失败: {search_e}")
-            
-            if order_id:
-                logger.info(f'🎯 最终提取到订单ID: {order_id}')
-            else:
-                logger.error(f'❌ 未能从消息中提取到订单ID')
-            
-            return order_id
+
+            for source, candidate_text in self._collect_order_id_candidate_texts(message, root='message'):
+                order_id = self._extract_order_id_from_candidate_text(candidate_text, source=source)
+                if order_id:
+                    logger.info(f'🎯 最终提取到订单ID: {order_id} (source={source})')
+                    return order_id
+
+            logger.error('❌ 未能从消息中提取到订单ID')
+            return None
         
         except Exception as e:
             logger.error(f"提取订单ID失败: {str(e)}")
             return None
+
+    def _extract_order_id_from_update_key(self, raw_text: Any) -> Optional[str]:
+        normalized_text = str(raw_text or '').strip()
+        if not normalized_text:
+            return None
+
+        direct_match = re.search(r'updateKey["\']?\s*[:=]\s*["\']([^"\']+)', normalized_text)
+        if direct_match:
+            normalized_text = direct_match.group(1)
+
+        colon_parts = [part.strip().strip('"\'') for part in normalized_text.split(':')]
+        long_numeric_parts = [part for part in colon_parts if part.isdigit() and len(part) >= 16]
+        if long_numeric_parts:
+            return long_numeric_parts[0]
+
+        generic_matches = re.findall(r'\d{16,}', normalized_text)
+        if generic_matches:
+            return generic_matches[0]
+        return None
+
+    def _extract_order_id_from_candidate_text(self, raw_text: Any, source: str = '') -> Optional[str]:
+        normalized_text = str(raw_text or '').strip()
+        if not normalized_text:
+            return None
+
+        patterns = [
+            r'orderId(?:=|:|%3[Dd]|\\u003[dD])\s*"?(\d{10,})',
+            r'bizOrderId["\']?\s*[:=]\s*"?(\d{10,})',
+            r'order[_-]?id["\']?\s*[:=]\s*"?(\d{10,})',
+            r'order[_-]?detail\?(?:[^\s#]*?&)?id=(\d{10,})',
+            r'order-detail\?(?:[^\s#]*?&)?orderId=(\d{10,})',
+        ]
+
+        for pattern in patterns:
+            match = re.search(pattern, normalized_text)
+            if match:
+                return match.group(1)
+
+        source_lower = source.lower()
+        text_lower = normalized_text.lower()
+        if (
+            'updatekey' in source_lower
+            or 'extjson' in source_lower
+            or 'updatekey' in text_lower
+            or ('trade_' in text_lower and ':' in normalized_text)
+            or ('buyer_confirm' in text_lower and ':' in normalized_text)
+        ):
+            return self._extract_order_id_from_update_key(normalized_text)
+
+        return None
+
+    def _collect_order_id_candidate_texts(self, data: Any, root: str = 'message'):
+        candidates = []
+        seen = set()
+
+        def add_candidate(source: str, value: Any):
+            if value is None:
+                return
+            normalized_text = str(value).strip()
+            if not normalized_text:
+                return
+            dedupe_key = (source, normalized_text)
+            if dedupe_key in seen:
+                return
+            seen.add(dedupe_key)
+            candidates.append((source, normalized_text))
+
+            if normalized_text[:1] in {'{', '['}:
+                try:
+                    parsed_value = json.loads(normalized_text)
+                except Exception:
+                    return
+                walk_value(parsed_value, f'{source}.json')
+
+        def walk_value(value: Any, source: str):
+            if isinstance(value, dict):
+                for key, nested_value in value.items():
+                    nested_source = f'{source}.{key}'
+                    if isinstance(nested_value, (dict, list)):
+                        walk_value(nested_value, nested_source)
+                    else:
+                        add_candidate(nested_source, nested_value)
+            elif isinstance(value, list):
+                for index, nested_value in enumerate(value[:20]):
+                    walk_value(nested_value, f'{source}[{index}]')
+            else:
+                add_candidate(source, value)
+
+        walk_value(data, root)
+        return candidates
 
     def _load_json_dict(self, raw_value: Any) -> Dict[str, Any]:
         if isinstance(raw_value, dict):
