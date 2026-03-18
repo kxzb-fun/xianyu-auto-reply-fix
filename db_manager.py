@@ -212,6 +212,22 @@ class DBManager:
             logger.warning(f"检测到未映射订单状态，按原值保存: {status}")
         return mapped
 
+    def _get_order_status_priority(self, status: str) -> int:
+        normalized = self._normalize_order_status(status)
+        priority_map = {
+            'processing': 10,
+            'pending_payment': 15,
+            'pending_ship': 20,
+            'partial_success': 30,
+            'partial_pending_finalize': 30,
+            'shipped': 40,
+            'completed': 50,
+            'refunding': 60,
+            'refund_cancelled': 65,
+            'cancelled': 70,
+        }
+        return priority_map.get(normalized, 0)
+
     def resolve_external_order_status(self, current_status: str, incoming_status: str, source: str = "external_sync") -> str:
         """合并外部/旁路状态写入，避免更粗粒度状态覆盖内部进度状态。"""
         normalized_current = self._normalize_order_status(current_status)
@@ -224,6 +240,7 @@ class DBManager:
             return normalized_incoming
 
         blocked_incoming_map = {
+            'pending_payment': {'processing'},
             'pending_ship': {'processing', 'pending_payment'},
             'partial_success': {'processing', 'pending_payment', 'pending_ship', 'shipped'},
             'partial_pending_finalize': {'processing', 'pending_payment', 'pending_ship', 'shipped'},
@@ -237,6 +254,19 @@ class DBManager:
         if normalized_incoming in blocked_incoming:
             logger.warning(
                 f"忽略外部订单状态覆盖: source={source}, current={normalized_current}, incoming={normalized_incoming}"
+            )
+            return normalized_current
+
+        current_priority = self._get_order_status_priority(normalized_current)
+        incoming_priority = self._get_order_status_priority(normalized_incoming)
+        if (
+            current_priority
+            and incoming_priority
+            and incoming_priority < current_priority
+            and normalized_incoming not in {'refunding', 'cancelled', 'refund_cancelled'}
+        ):
+            logger.warning(
+                f"忽略低优先级外部状态覆盖: source={source}, current={normalized_current}, incoming={normalized_incoming}"
             )
             return normalized_current
 
